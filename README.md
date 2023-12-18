@@ -3,7 +3,7 @@
 
 This is the official repository for the FuXi-S2S paper.
 
-[FuXi-S2S: An accurate machine learning model for global subseasonal forecasts](https://arxiv.org/abs/2312.09926)
+A machine learning model that outperforms conventional global subseasonal forecast models
 
 by Lei Chen, Xiaohui Zhong, Jie Wu, Deliang Chen, Shangping Xie, Qingchen Chao, Chensen Lin, Zixin Hu, Bo Lu, Hao Li, Yuan Qi
 
