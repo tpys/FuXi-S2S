@@ -4,100 +4,150 @@ import time
 import numpy as np
 import xarray as xr
 import pandas as pd
+import onnxruntime as ort
 from copy import deepcopy
-import torch 
-
-from data_util import inv_normalize, print_dataarray
-
+from data_util import make_input, print_dataarray
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, required=True, help="The FuXi-S2S model")
-parser.add_argument('--input', type=str, required=True, help="The input data")
-parser.add_argument('--device', type=str, default="cuda")
-parser.add_argument('--save_dir', type=str, default="", help="Where to save the forecasts")
+parser.add_argument('--model', type=str, required=True, help="FuXi-S2S onnx model file")
+parser.add_argument('--input', type=str, required=True, help="The input netcdf data file")
+parser.add_argument('--device', type=str, default="cuda", help="The device to run FuXi model")
+parser.add_argument('--save_dir', type=str, default="")
 parser.add_argument('--total_step', type=int, default=42)
-parser.add_argument('--total_member', type=int, default=51)
+parser.add_argument('--total_member', type=int, default=1)
 args = parser.parse_args()
 
 
-def save_like(output, template, step, member):
+def save_with_progress(ds, save_name, dtype=np.float32):
+    from dask.diagnostics import ProgressBar
+
+    if 'time' in ds.dims:
+        ds = ds.assign_coords(time=ds.time.astype(np.datetime64))
+
+    ds = ds.astype(dtype)
+    obj = ds.to_netcdf(save_name, compute=False)
+
+    with ProgressBar():
+        obj.compute()
+
+
+def save_like(output, input, member, lead_time, save_dir=""):
 
     if args.save_dir:
-        os.makedirs(args.save_dir, exist_ok=True)
-        mean = xr.open_dataarray("data/mean.nc")
-        std = xr.open_dataarray("data/std.nc")
-        
-        init_time = pd.to_datetime(template.time.data[-1])
+        save_dir = os.path.join(args.save_dir, f"member/{member:02d}")
+        os.makedirs(save_dir, exist_ok=True)
+        init_time = pd.to_datetime(input.time.data[-1])
+
         ds = xr.DataArray(
-            data=output[None],
-            dims=['time', 'step', 'member', 'level', 'lat', 'lon'],
+            data=output,
+            dims=['time', 'lead_time', 'channel', 'lat', 'lon'],
             coords=dict(
                 time=[init_time],
-                step=[step],
-                member=[member],
-                level=template.level,
-                lat=template.lat,
-                lon=template.lon,
+                lead_time=[lead_time],
+                channel=input.channel,
+                lat=input.lat,
+                lon=input.lon,
             )
         ).astype(np.float32)
-        ds = inv_normalize(ds, mean, std)
-        # print_dataarray(ds)
-        save_name = os.path.join(args.save_dir, f'm{member:02d}_s{step:02d}.nc')
+        print_dataarray(ds)
+        save_name = os.path.join(save_dir, f'{lead_time:02d}.nc')
         ds.to_netcdf(save_name)
 
 
 
+def load_model(model_name, device):
+    ort.set_default_logger_severity(3)
+    options = ort.SessionOptions()
+    options.enable_cpu_mem_arena=False
+    options.enable_mem_pattern = False
+    options.enable_mem_reuse = False
+    
+    if device == "cuda":
+        providers = [('CUDAExecutionProvider', {'arena_extend_strategy':'kSameAsRequested'})]
+    elif device == "cpu":
+        providers=['CPUExecutionProvider']
+        options.intra_op_num_threads = 24
+    else:
+        raise ValueError("device must be cpu or cuda!")
 
-def run_inference(model, input_nc, total_step, total_member):
-    hist_time = pd.to_datetime(input_nc.time.values[-2])
-    init_time = pd.to_datetime(input_nc.time.values[-1])
+    session = ort.InferenceSession(
+        model_name,  
+        sess_options=options, 
+        providers=providers
+    )
+    return session
+
+
+def run_inference(
+    model, 
+    input_xr, 
+    total_step, 
+    total_member, 
+    save_dir=""
+):
+    hist_time = pd.to_datetime(input_xr.time.values[-2])
+    init_time = pd.to_datetime(input_xr.time.values[-1])
     assert init_time - hist_time == pd.Timedelta(days=1)
-    lat = input_nc.lat.values 
-    lon = input_nc.lon.values 
+    
+    lat = input_xr.lat.values 
+    lon = input_xr.lon.values 
+    input = input_xr.values[None]
     assert lat[0] == 90 and lat[-1] == -90
-
-    input = input_nc.data[None]
     print(f'Model initial Time: {init_time.strftime(("%Y%m%d%H"))}')
     print(f"Region: {lat[0]:.2f} ~ {lat[-1]:.2f}, {lon[0]:.2f} ~ {lon[-1]:.2f}")
-    print(f"Input: {input.shape}")
 
-    
-    print(f'Inference ...')
-    for m in range(total_member):
-        curr_input = deepcopy(input)
 
-        for t in range(total_step):
-            curr_input = torch.from_numpy(curr_input).to(args.device)
-            step = curr_input.new_full((1,), t)
-            curr_input = model(curr_input, step).detach().cpu().numpy()
-            print(f"member: {m:02d}, step: {t+1:02d}")
+    for member in range(total_member):
+        print(f'Inference member {member:02d} ...')
+        new_input = deepcopy(input)
 
-            save_like(
-                output=curr_input[:, -1:], 
-                template=input_nc, 
-                step=t+1, 
-                member=m,
-            )
+        start = time.perf_counter()
+        for step in range(total_step):
+            lead_time = (step + 1)
+            inputs = {'input': new_input}        
 
-            if t > total_step:
+            if "step" in input_names:
+                inputs['step'] = np.array([step], dtype=np.float32)
+
+            if "doy" in input_names:
+                valid_time = init_time + pd.Timedelta(days=step)
+                doy = min(365, valid_time.day_of_year)/365 
+                inputs['doy'] = np.array([doy], dtype=np.float32)
+
+            istart = time.perf_counter()
+            new_input, = model.run(None, inputs)
+            output = deepcopy(new_input[:, -1:])
+            step_time = time.perf_counter() - istart
+
+            print(f"member: {member:02d}, step {step+1:02d}, step_time: {step_time:.3f} sec")
+            save_like(output, input_xr, member, lead_time, save_dir)
+            
+            if step > total_step:
                 break
-    
-    run_time = time.perf_counter() - start
-    print(f'Inference done take {run_time:.2f}')
+
+        run_time = time.perf_counter() - start
+        print(f'Inference member done, take {run_time:.2f} sec')
 
     
+
 if __name__ == "__main__":
-    print(f'Load Input ...')    
-    start = time.perf_counter()
-    input_nc = xr.open_dataarray(args.input)
-    print_dataarray(input_nc)
-    print(f'Load Input take {time.perf_counter() - start:.2f} sec')
+    if os.path.exists(args.input):
+        input_xr = xr.open_dataarray(args.input)
+    else:
+        input_xr = make_input("data/sample")
+        input_xr.to_netcdf("data/input.nc")
+        print_dataarray(input_xr)        
 
     print(f'Load FuXi ...')       
     start = time.perf_counter()
-    model = torch.jit.load(args.model)
-    model = model.to(args.device)
-    model.eval()    
-
+    model = load_model(args.model, args.device)
+    input_names = [input.name for input in model.get_inputs()]
     print(f'Load FuXi take {time.perf_counter() - start:.2f} sec')
-    run_inference(model, input_nc, args.total_step, args.total_member)
+
+    run_inference(
+        model, 
+        input_xr, 
+        args.total_step, 
+        args.total_member,  
+        save_dir=args.save_dir
+    )

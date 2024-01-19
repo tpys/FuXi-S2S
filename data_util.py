@@ -2,7 +2,7 @@ import os
 import numpy as np
 import xarray as xr
 
-__all__ = ["make_input", "normalize", "inv_normalize", "print_dataarray"]
+__all__ = ["make_input", "print_dataarray"]
 
 levels = [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
 
@@ -30,61 +30,46 @@ s2s_names = [
 ]
 
 
-def normalize(ds, mean, std):
-    ds = (ds - mean) / (std + 1e-12) 
-    ds = ds.fillna(0)
-    return ds
-
-
-def inv_normalize(ds, mean, std):
-    ds = ds * std + mean 
-    tp = ds.sel(level="tp")
-    tp = np.exp(tp.clip(0, 7)) - 1
-    ds.loc[dict(level="tp")] = tp
-    return ds
-
-
-def print_dataarray(
-    ds, 
-    topk=10,     
-    var_names=["tp", "t2m", "ttr", "z500", "u200", "u850"], 
-):
+def print_dataarray(ds, msg='', n=10):
     tid = np.arange(0, ds.shape[0])
-    tid = np.append(tid[:topk], tid[-topk:])        
-    info = f"name: {ds.name}, shape: {ds.shape}"
+    tid = np.append(tid[:n], tid[-n:])    
+    v = ds.isel(time=tid)
+    msg += f"short_name: {ds.name}, shape: {ds.shape}, value: {v.values.min():.3f} ~ {v.values.max():.3f}"
     
     if 'lat' in ds.dims:
         lat = ds.lat.values
-        info += f", lat: {lat[0]:.3f} ~ {lat[-1]:.3f}"
+        msg += f", lat: {lat[0]:.3f} ~ {lat[-1]:.3f}"
     if 'lon' in ds.dims:
         lon = ds.lon.values
-        info += f", lon: {lon[0]:.3f} ~ {lon[-1]:.3f}"        
+        msg += f", lon: {lon[0]:.3f} ~ {lon[-1]:.3f}"   
 
-    v = ds.isel(time=tid)
-    if "level" in v.dims:
-        for lvl in var_names:
+    if "level" in v.dims and len(v.level) > 1:
+        for lvl in v.level.values:
             x = v.sel(level=lvl).values
-            info += f'\nlevel: {lvl}, value: {x.min():.3f} ~ {x.max():.3f}'
-    elif "channel" in v.dims:
-        for ch in var_names:
+            msg += f"\nlevel: {lvl:04d}, value: {x.min():.3f} ~ {x.max():.3f}"
+
+    if "channel" in v.dims and len(v.channel) > 1:
+        for ch in v.channel.values:
             x = v.sel(channel=ch).values
-            info += f'\nchannel: {ch}, value: {x.min():.3f} ~ {x.max():.3f}'
-    else:
-        info += f', value: {v.values.min():.3f} ~ {v.values.max():.3f}'
-    print(info)
+            msg += f"\nchannel: {ch}, value: {x.min():.3f} ~ {x.max():.3f}"
+
+    print(msg)
 
 
 
 def make_input(data_dir):
     ds = []
+    channel = []
     for (long_name, short_name) in s2s_names:   
         file_name = os.path.join(data_dir, f"{long_name}.nc")
         v = xr.open_dataarray(file_name)
 
         if short_name == "tp":
-            v = np.log(1 + v * 1000)
+            v = np.clip(v * 1000, 0, 1000)
+
         elif short_name == "ttr":
             v = v / 3600
+
         if v.level.values[0] != 1000:
             v = v.reindex(level=v.level[::-1])
 
@@ -97,18 +82,11 @@ def make_input(data_dir):
         v.attrs = {}        
         v = v.assign_coords(level=level)
         ds.append(v)
+        channel += level
 
-    ds = xr.concat(ds, 'level')
+    ds = xr.concat(ds, 'level').rename({"level": "channel"})
+    ds = ds.assign_coords(channel=channel)
     return ds
-
-
-def test_make_input():
-    mean = xr.open_dataarray("data/mean.nc")
-    std = xr.open_dataarray("data/std.nc")
-    ds = make_input(data_dir="data/sample")
-    ds = normalize(ds, mean, std)
-    print_dataarray(ds)
-    ds.to_netcdf("data/input.nc")
 
 
 

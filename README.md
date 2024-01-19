@@ -26,8 +26,6 @@ The downloaded files shall be organized as the following hierarchy:
 |   |
 │   ├── model
 │   |    ├── fuxi_s2s.onnx
-│   |    ├── mean.nc
-│   |    ├── std.nc
 |   |   
 │   ├── inference.py
 │   ├── data_util.py
@@ -51,10 +49,10 @@ conda install pytorch pytorch-cuda=11.7 -c pytorch -c nvidia
 
 ```python 
 python inference.py \
-    --model model/fuxi_s2s.pt \
+    --model model/fuxi_s2s.onnx \
     --input data/input.nc \
     --total_step 42 \
-    --total_member 51 \
+    --total_member 11 \
     --save_dir output;
 ```
 
