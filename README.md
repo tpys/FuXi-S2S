@@ -59,7 +59,7 @@ python inference.py \
 
 ## Input preparation 
 
-The `input.nc` file contains preprocessed data from the origin ERA5 files. The file has a shape of (2, 76, 721, 1440), where the first dimension represents two time steps. The second dimension represents all variable and level combinations, named in the following exact order:
+The `input.nc` file contains preprocessed data from the origin ERA5 files. The file has a shape of (2, 76, 121, 240), where the first dimension represents two time steps. The second dimension represents all variable and level combinations, named in the following exact order:
 
 ```python
 ['z1000', 'z925', 'z850', 'z700', 'z600', 'z500', 'z400', 'z300',
