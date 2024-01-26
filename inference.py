@@ -130,7 +130,7 @@ def run_inference(
         print(f'Inference member done, take {run_time:.2f} sec')
 
 
-def sea_to_nan(input, mask, names=['sst']):
+def land_to_nan(input, mask, names=['sst']):
     channel = input.channel.data.tolist()
     for ch in names:
         v = input.sel(channel=ch)
@@ -149,7 +149,7 @@ if __name__ == "__main__":
         input.to_netcdf("data/input.nc")
 
     mask = xr.open_dataarray("data/mask.nc")
-    input = sea_to_nan(input, mask)    
+    input = land_to_nan(input, mask)    
     print_dataarray(input)        
 
     print(f'Load FuXi ...')       
