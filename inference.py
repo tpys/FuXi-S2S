@@ -80,30 +80,31 @@ def load_model(model_name, device):
 
 def run_inference(
     model, 
-    input_xr, 
+    input, 
     total_step, 
     total_member, 
     save_dir=""
 ):
-    hist_time = pd.to_datetime(input_xr.time.values[-2])
-    init_time = pd.to_datetime(input_xr.time.values[-1])
+    hist_time = pd.to_datetime(input.time.values[-2])
+    init_time = pd.to_datetime(input.time.values[-1])
     assert init_time - hist_time == pd.Timedelta(days=1)
     
-    lat = input_xr.lat.values 
-    lon = input_xr.lon.values 
-    input = input_xr.values[None]
+    lat = input.lat.values 
+    lon = input.lon.values 
+    batch = input.values[None]
+    
     assert lat[0] == 90 and lat[-1] == -90
     print(f'Model initial Time: {init_time.strftime(("%Y%m%d%H"))}')
     print(f"Region: {lat[0]:.2f} ~ {lat[-1]:.2f}, {lon[0]:.2f} ~ {lon[-1]:.2f}")
 
-
     for member in range(total_member):
         print(f'Inference member {member:02d} ...')
-        new_input = deepcopy(input)
+        new_input = deepcopy(batch)
 
         start = time.perf_counter()
         for step in range(total_step):
             lead_time = (step + 1)
+
             inputs = {'input': new_input}        
 
             if "step" in input_names:
@@ -120,7 +121,7 @@ def run_inference(
             step_time = time.perf_counter() - istart
 
             print(f"member: {member:02d}, step {step+1:02d}, step_time: {step_time:.3f} sec")
-            save_like(output, input_xr, member, lead_time, save_dir)
+            save_like(output, input, member, lead_time, save_dir)
             
             if step > total_step:
                 break
@@ -128,15 +129,28 @@ def run_inference(
         run_time = time.perf_counter() - start
         print(f'Inference member done, take {run_time:.2f} sec')
 
-    
+
+def sea_to_nan(input, mask, names=['sst']):
+    channel = input.channel.data.tolist()
+    for ch in names:
+        v = input.sel(channel=ch)
+        v = v.where(mask)
+        idx = channel.index(ch)
+        input.data[:, idx] = v.data
+    return input
+
+
 
 if __name__ == "__main__":
     if os.path.exists(args.input):
-        input_xr = xr.open_dataarray(args.input)
+        input = xr.open_dataarray(args.input)
     else:
-        input_xr = make_input("data/sample")
-        input_xr.to_netcdf("data/input.nc")
-        print_dataarray(input_xr)        
+        input = make_input("data/sample")
+        input.to_netcdf("data/input.nc")
+
+    mask = xr.open_dataarray("data/mask.nc")
+    input = sea_to_nan(input, mask)    
+    print_dataarray(input)        
 
     print(f'Load FuXi ...')       
     start = time.perf_counter()
@@ -146,7 +160,7 @@ if __name__ == "__main__":
 
     run_inference(
         model, 
-        input_xr, 
+        input, 
         args.total_step, 
         args.total_member,  
         save_dir=args.save_dir

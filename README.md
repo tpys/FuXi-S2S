@@ -17,7 +17,7 @@ The downloaded files shall be organized as the following hierarchy:
 ```plain
 ├── root
 │   ├── data
-│   │    ├── input.nc
+│   │    ├── mask.nc
 │   │    ├── sample
 │   │         ├── geopotential.nc
 │   │         ├── temperature.nc
