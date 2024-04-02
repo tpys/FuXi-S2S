@@ -6,12 +6,13 @@ import xarray as xr
 import pandas as pd
 import onnxruntime as ort
 from copy import deepcopy
-from data_util import make_input, print_dataarray
+from cra40_util import make_input, print_dataarray
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, required=True, help="FuXi-S2S onnx model file")
 parser.add_argument('--input', type=str, required=True, help="The input netcdf data file")
 parser.add_argument('--device', type=str, default="cuda", help="The device to run FuXi model")
+parser.add_argument('--device_id', type=int, default=0, help="Which gpu to use")
 parser.add_argument('--save_dir', type=str, default="")
 parser.add_argument('--total_step', type=int, default=42)
 parser.add_argument('--total_member', type=int, default=1)
@@ -61,9 +62,10 @@ def load_model(model_name, device):
     options.enable_cpu_mem_arena=False
     options.enable_mem_pattern = False
     options.enable_mem_reuse = False
-    
+
     if device == "cuda":
-        providers = [('CUDAExecutionProvider', {'arena_extend_strategy':'kSameAsRequested'})]
+        providers = ['CUDAExecutionProvider']
+        provider_options = [{'device_id': args.device_id}]
     elif device == "cpu":
         providers=['CPUExecutionProvider']
         options.intra_op_num_threads = 24
@@ -73,10 +75,11 @@ def load_model(model_name, device):
     session = ort.InferenceSession(
         model_name,  
         sess_options=options, 
-        providers=providers
+        providers=providers,
+        provider_options=provider_options
     )
     return session
-
+    
 
 def run_inference(
     model, 
@@ -130,15 +133,6 @@ def run_inference(
         print(f'Inference member done, take {run_time:.2f} sec')
 
 
-def land_to_nan(input, mask, names=['sst']):
-    channel = input.channel.data.tolist()
-    for ch in names:
-        v = input.sel(channel=ch)
-        v = v.where(mask)
-        idx = channel.index(ch)
-        input.data[:, idx] = v.data
-    return input
-
 
 
 if __name__ == "__main__":
@@ -147,10 +141,6 @@ if __name__ == "__main__":
     else:
         input = make_input("data/sample")
         input.to_netcdf("data/input.nc")
-
-    mask = xr.open_dataarray("data/mask.nc")
-    input = land_to_nan(input, mask)    
-    print_dataarray(input)        
 
     print(f'Load FuXi ...')       
     start = time.perf_counter()

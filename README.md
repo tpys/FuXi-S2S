@@ -53,6 +53,8 @@ python inference.py \
     --input data/input.nc \
     --total_step 42 \
     --total_member 11 \
+    --device "cuda" \
+    --device_id 0 \
     --save_dir output;
 ```
 
