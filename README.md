@@ -9,8 +9,9 @@ by Lei Chen, Xiaohui Zhong, Jie Wu, Deliang Chen, Shangping Xie, Qingchen Chao, 
 
 
 ## Installation
-The Google Drive folder contains the FuXi-S2S model and sample input data, all of which are essential resources for this study. Currently, access to these resources is limited. For inquiries regarding the Google Drive link, kindly reach out to Professor Li Hao at the following email address: lihao_lh@fudan.edu.cn.
+The FuXi-S2S model and sample input data used in this study are now publicly available via Zenodo:
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15718402.svg)](https://zenodo.org/records/15718402)
 
 The downloaded files shall be organized as the following hierarchy:
 
@@ -76,10 +77,5 @@ The `input.nc` file contains preprocessed data from the origin ERA5 files. The f
 
 The last 11 variables: ('t2m', 'd2m', 'sst', 'ttr', '10u', '10v', '100u', '100v',
 'msl', 'tcwv', 'tp') are surface variables, while the remaining variables represent atmosphere variables with numbers representing pressure levels. 
-
-
-### 📄 Citation & DOI
-
-This work is archived on Zenodo: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15718402.svg)](https://zenodo.org/records/15718402)
 
 
